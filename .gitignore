@@ -1,0 +1,48 @@
+# -----------------------------
+#   Global ignores
+# -----------------------------
+.DS_Store
+*.log
+*.pyc
+__pycache__/
+.env
+.env.*
+*.env
+
+# -----------------------------
+#   Python Backend (FastAPI)
+# -----------------------------
+Backend/.venv/
+Backend/venv/
+Backend/env/
+Backend/*.sqlite3
+Backend/*.db
+Backend/__pycache__/
+Backend/.pytest_cache/
+Backend/*.pyc
+Backend/*.pem
+Backend/*.key
+Backend/secrets/
+Backend/.env
+Backend/.env.*
+Backend/*/config.json
+
+# -----------------------------
+#   Node / Frontend (React / Vite)
+# -----------------------------
+Frontend/node_modules/
+Frontend/.parcel-cache/
+Frontend/.next/
+Frontend/.turbo/
+Frontend/dist/
+Frontend/build/
+Frontend/.env
+Frontend/.env.*
+Frontend/*.local
+
+# -----------------------------
+#   Ngrok + Tunnels
+# -----------------------------
+ngrok.yml
+*.ngrok
+*.ngrok-debug.log
