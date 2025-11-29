@@ -47,13 +47,16 @@ class RoomCreate(BaseModel):
     pass
 
 
-class RoomOut(RoomBase):
+class RoomOut(BaseModel):
     id: int
+    code: str
     host_user_id: int
+    is_active: bool
     created_at: datetime
 
     class Config:
         orm_mode = True
+
 
 
 # ================================================
@@ -111,3 +114,4 @@ class PlaylistOut(BaseModel):
 
     class Config:
         orm_mode = True
+

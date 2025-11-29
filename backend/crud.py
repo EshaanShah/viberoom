@@ -104,6 +104,10 @@ async def get_room_members(db: AsyncSession, room_id: int):
     )
     return result.scalars().all()
 
+async def get_room(db: AsyncSession, room_id: int):
+    result = await db.execute(select(Room).where(Room.id == room_id))
+    return result.scalar_one_or_none()
+
 
 # ======================================================
 # PREFERENCES
