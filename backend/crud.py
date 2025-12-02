@@ -52,6 +52,57 @@ async def update_user_refresh_token(db: AsyncSession, spotify_id: str, new_refre
     return user
 
 
+async def remove_user_from_room(db: AsyncSession, room_id: int, user_id: int):
+    result = await db.execute(
+        select(RoomMember).where(
+            RoomMember.room_id == room_id,
+            RoomMember.user_id == user_id
+        )
+    )
+    membership = result.scalars().first()
+
+    if not membership:
+        return False
+
+    await db.delete(membership)
+    await db.commit()
+    return True
+
+
+async def end_room(db: AsyncSession, room_id: int, host_id: int):
+    # Fetch the room
+    result = await db.execute(
+        select(Room).where(Room.id == room_id)
+    )
+    room = result.scalars().first()
+
+    if not room:
+        return None, "Room not found"
+
+    # Only host can close the room
+    if room.host_user_id != host_id:
+        return None, "Not authorized"
+
+    # Mark as inactive
+    room.is_active = False
+    await db.commit()
+    await db.refresh(room)
+
+    # Remove all members
+    await db.execute(
+        select(RoomMember)
+        .where(RoomMember.room_id == room_id)
+        .execution_options(synchronize_session="fetch")
+    )
+    await db.execute(
+        RoomMember.__table__.delete().where(RoomMember.room_id == room_id)
+    )
+
+    await db.commit()
+
+    return room, None
+
+
 # ======================================================
 # ROOMS
 # ======================================================
@@ -89,12 +140,27 @@ async def get_room_by_code(db: AsyncSession, code: str) -> Room:
 # ======================================================
 
 async def add_user_to_room(db: AsyncSession, room_id: int, user_id: int) -> RoomMember:
-    """Add a user to a room."""
+    """Add a user to a room only if not already joined."""
+
+    # Check if user already in this room
+    result = await db.execute(
+        select(RoomMember).where(
+            RoomMember.room_id == room_id,
+            RoomMember.user_id == user_id
+        )
+    )
+    existing = result.scalars().first()
+
+    if existing:
+        return existing  # Do NOTHING, return existing membership
+
+    # Otherwise create new membership
     member = RoomMember(room_id=room_id, user_id=user_id)
     db.add(member)
     await db.commit()
     await db.refresh(member)
     return member
+
 
 
 async def get_room_members(db: AsyncSession, room_id: int):

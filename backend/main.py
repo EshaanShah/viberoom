@@ -13,7 +13,7 @@ from .crud import (
     get_room_by_code,
     add_user_to_room,
     save_preferences,
-    get_room, get_room_members
+    get_room, get_room_members, remove_user_from_room, end_room
 )
 from .models import User
 from .schemas import UserOut, PreferencesCreate, RoomOut, UserCreate
@@ -123,6 +123,22 @@ async def save_preferences_route(
     return {"message": "Preferences saved", "id": saved.id}
 
 
+@app.delete("/rooms/{room_id}")
+async def end_room_route(
+        room_id: int,
+        user = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+):
+    room, error = await end_room(db, room_id, user.id)
+
+    if error == "Room not found":
+        raise HTTPException(status_code=404, detail=error)
+    if error == "Not authorized":
+        raise HTTPException(status_code=403, detail=error)
+
+    return {"message": "Room closed", "room_id": room_id}
+
+
 @app.get("/rooms/{room_id}", response_model=RoomOut)
 async def get_room_details(
         room_id: int,
@@ -135,6 +151,19 @@ async def get_room_details(
         raise HTTPException(status_code=404, detail="Room not found")
 
     return room
+
+@app.delete("/rooms/{room_id}/leave")
+async def leave_room_route(
+        room_id: int,
+        user = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+):
+    success = await remove_user_from_room(db, room_id, user.id)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="User not in room")
+
+    return {"message": "Left room"}
 
 
 @app.get("/rooms/{room_id}/members")
