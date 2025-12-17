@@ -20,6 +20,12 @@ from .schemas import UserOut, PreferencesCreate, RoomOut, UserCreate
 from . import spotify_auth
 from .auth import get_current_user
 from . import models   # <-- IMPORTANT: ensures SQLAlchemy loads models
+from typing import List
+from sqlalchemy import select
+from .models import PreferenceProfile
+from .schemas import PreferencesOut, VibeProfile
+import json
+from .rec_engine import generate_vibe_profile
 
 app = FastAPI()
 
@@ -121,6 +127,58 @@ async def save_preferences_route(
 ):
     saved = await save_preferences(db, room_id, user.id, prefs)
     return {"message": "Preferences saved", "id": saved.id}
+
+@app.get("/rooms/{room_id}/preferences", response_model=List[PreferencesOut])
+async def get_room_preferences(
+        room_id: int,
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+):
+    result = await db.execute(
+        select(PreferenceProfile).where(PreferenceProfile.room_id == room_id)
+    )
+    prefs = result.scalars().all()
+
+    # Convert JSON strings → lists
+    for p in prefs:
+        p.genres = json.loads(p.genres)
+        p.hard_nos = json.loads(p.hard_nos)
+
+    return prefs
+
+
+@app.get("/rooms/{room_id}/preferences/me")
+async def check_my_preferences(
+        room_id: int,
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+):
+    result = await db.execute(
+        select(PreferenceProfile).where(
+            PreferenceProfile.room_id == room_id,
+            PreferenceProfile.user_id == current_user.id
+        )
+    )
+    pref = result.scalars().first()
+    return {"completed": pref is not None}
+
+@app.get("/rooms/{room_id}/vibe-profile", response_model=VibeProfile)
+async def get_vibe_profile(
+        room_id: int,
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+):
+    result = await db.execute(
+        select(PreferenceProfile).where(PreferenceProfile.room_id == room_id)
+    )
+    prefs = result.scalars().all()
+
+    if not prefs:
+        raise HTTPException(status_code=400, detail="No preferences found.")
+
+    vibe = generate_vibe_profile(prefs)
+    return vibe
+
 
 
 @app.delete("/rooms/{room_id}")

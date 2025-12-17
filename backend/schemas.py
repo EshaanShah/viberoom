@@ -115,3 +115,9 @@ class PlaylistOut(BaseModel):
     class Config:
         orm_mode = True
 
+class VibeProfile(BaseModel):
+    target_genres: List[str]
+    energy: float
+    new_vs_familiar: float
+    hard_no_genres: List[str]
+    event_type: str
