@@ -13,11 +13,11 @@ from .crud import (
     get_room_by_code,
     add_user_to_room,
     save_preferences,
-    get_room, get_room_members, remove_user_from_room, end_room
+    get_room, get_room_members, remove_user_from_room, end_room, get_preferences_for_room
 )
 from .models import User
 from .schemas import UserOut, PreferencesCreate, RoomOut, UserCreate
-from . import spotify_auth
+from . import spotify_auth, playlist_engine
 from .auth import get_current_user
 from . import models   # <-- IMPORTANT: ensures SQLAlchemy loads models
 from typing import List
@@ -232,6 +232,33 @@ async def get_members_route(
 ):
     members = await get_room_members(db, room_id)
     return members
+
+@app.get("/test/playlist-engine-spotify/{room_id}")
+async def test_playlist_engine_spotify(
+        room_id: int,
+        user=Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+):
+    prefs = await get_preferences_for_room(db, room_id)
+    vibe_profile = generate_vibe_profile(prefs)
+
+    access_token = await spotify_auth.get_valid_access_token(user)
+
+    tracks = await spotify_auth.get_top_tracks(access_token)
+    track_ids = [t["id"] for t in tracks]
+
+    audio_features = await spotify_auth.get_audio_features(
+        access_token, track_ids
+    )
+
+    ranked = playlist_engine.generate_playlist(
+        vibe_profile,
+        tracks,
+        audio_features,
+    )
+
+    return ranked[:25]
+
 
 # ============================================================
 # CREATE TABLES ON STARTUP

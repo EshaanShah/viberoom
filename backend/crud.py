@@ -223,7 +223,18 @@ async def save_preferences(
     await db.refresh(prefs)
     return prefs
 
+async def get_preferences_for_room(
+        db: AsyncSession,
+        room_id: int
+) -> list[PreferenceProfile]:
+    """Return all preference profiles for a given room."""
 
+    result = await db.execute(
+        select(PreferenceProfile).where(
+            PreferenceProfile.room_id == room_id
+        )
+    )
+    return result.scalars().all()
 # ======================================================
 # PLAYLISTS
 # ======================================================
