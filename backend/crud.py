@@ -1,4 +1,5 @@
 # backend/crud.py
+import json
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -213,10 +214,10 @@ async def save_preferences(
         room_id=room_id,
         user_id=user_id,
         event_type=data.event_type,
-        genres=",".join(data.genres),
+        genres=json.dumps(data.genres),
         energy_level=data.energy_level,
         new_vs_familiar=data.new_vs_familiar,
-        hard_nos=",".join(data.hard_nos)
+        hard_nos=json.dumps(data.hard_nos),
     )
     db.add(prefs)
     await db.commit()

@@ -132,19 +132,27 @@ async def save_preferences_route(
 async def get_room_preferences(
         room_id: int,
         db: AsyncSession = Depends(get_db),
-        current_user: User = Depends(get_current_user)
+        current_user: User = Depends(get_current_user),
 ):
     result = await db.execute(
         select(PreferenceProfile).where(PreferenceProfile.room_id == room_id)
     )
     prefs = result.scalars().all()
 
-    # Convert JSON strings → lists
-    for p in prefs:
-        p.genres = json.loads(p.genres)
-        p.hard_nos = json.loads(p.hard_nos)
-
-    return prefs
+    return [
+        PreferencesOut(
+            id=p.id,
+            user_id=p.user_id,
+            room_id=p.room_id,
+            genres=safe_json_load(p.genres, []),
+            hard_nos=safe_json_load(p.hard_nos, []),
+            energy_level=p.energy_level,
+            new_vs_familiar=p.new_vs_familiar,
+            event_type=p.event_type,
+            created_at=p.created_at
+        )
+        for p in prefs
+    ]
 
 
 @app.get("/rooms/{room_id}/preferences/me")
@@ -233,32 +241,38 @@ async def get_members_route(
     members = await get_room_members(db, room_id)
     return members
 
-@app.get("/test/playlist-engine-spotify/{room_id}")
-async def test_playlist_engine_spotify(
+# backend/main.py
+
+from backend.rec_engine import generate_vibe_profile
+from backend.crud import get_preferences_for_room
+
+@app.get("/test/vibe-profile/{room_id}")
+async def test_vibe_profile(
         room_id: int,
         user=Depends(get_current_user),
         db: AsyncSession = Depends(get_db),
 ):
     prefs = await get_preferences_for_room(db, room_id)
+
+    if not prefs:
+        raise HTTPException(404, "No preferences found")
+
     vibe_profile = generate_vibe_profile(prefs)
 
-    access_token = await spotify_auth.get_valid_access_token(user)
+    return {
+        "raw_preferences": prefs,
+        "vibe_profile": vibe_profile,
+    }
 
-    tracks = await spotify_auth.get_top_tracks(access_token)
-    track_ids = [t["id"] for t in tracks]
-
-    audio_features = await spotify_auth.get_audio_features(
-        access_token, track_ids
-    )
-
-    ranked = playlist_engine.generate_playlist(
-        vibe_profile,
-        tracks,
-        audio_features,
-    )
-
-    return ranked[:25]
-
+def safe_json_load(value, default):
+    if not value:
+        return default
+    if isinstance(value, (list, dict)):
+        return value
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return default
 
 # ============================================================
 # CREATE TABLES ON STARTUP
