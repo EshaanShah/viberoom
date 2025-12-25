@@ -44,7 +44,7 @@ def generate_vibe_profile(preferences):
 
     return {
         "target_genres": target_genres,
-        "energy": round(sum(energy_values) / len(energy_values), 2),
+        "energy": round((sum(energy_values) / len(energy_values)) / 10, 2),
         "new_vs_familiar": round(
             sum(new_vs_familiar_values) / len(new_vs_familiar_values), 2
         ),

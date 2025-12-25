@@ -94,3 +94,38 @@ async def get_user_profile(access_token: str):
     async with httpx.AsyncClient() as client:
         res = await client.get(url, headers=headers)
         return res.json()
+
+async def get_valid_access_token(user):
+    token_data = await refresh_access_token(user.refresh_token)
+
+    if "access_token" not in token_data:
+        raise Exception(f"Spotify token refresh failed: {token_data}")
+
+    return token_data["access_token"]
+
+
+async def get_top_tracks(access_token: str, limit: int = 50):
+    url = "https://api.spotify.com/v1/me/top/tracks"
+    headers = {"Authorization": f"Bearer {access_token}"}
+    params = {"limit": limit, "time_range": "medium_term"}
+
+    async with httpx.AsyncClient() as client:
+        res = await client.get(url, headers=headers, params=params)
+        return res.json()["items"]
+
+async def get_audio_features(access_token: str, track_ids: list[str]):
+    url = "https://api.spotify.com/v1/audio-features"
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    params = {
+        "ids": ",".join(track_ids[:1])  # max 100
+    }
+
+    async with httpx.AsyncClient() as client:
+        res = await client.get(url, headers=headers, params=params)
+        data = res.json()
+
+    if "audio_features" not in data:
+        raise Exception(f"Spotify audio-features error: {data}")
+
+    return data["audio_features"]

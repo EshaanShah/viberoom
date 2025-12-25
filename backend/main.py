@@ -274,6 +274,54 @@ def safe_json_load(value, default):
     except json.JSONDecodeError:
         return default
 
+@app.get("/test/playlist-engine-spotify/{room_id}")
+async def test_playlist_engine_spotify(
+        room_id: int,
+        user=Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+):
+    prefs = await get_preferences_for_room(db, room_id)
+    if not prefs:
+        raise HTTPException(404, "No preferences found")
+
+    vibe_profile = generate_vibe_profile(prefs)
+
+    access_token = await spotify_auth.get_valid_access_token(user)
+
+    # 1) Get top tracks
+    tracks = await spotify_auth.get_top_tracks(access_token)
+    track_ids = [t["id"] for t in tracks if t.get("id")]
+    print("ABOUT TO CALL SPOTIFY /me")
+    profile = await spotify_auth.get_user_profile(access_token)
+    print("PROFILE:", profile)
+    track_ids = [t for t in track_ids if t][:50]
+    print("USING TRACK IDS:", track_ids)
+    # 2) Get audio features for those tracks
+    #audio_features = await spotify_auth.get_audio_features(access_token, track_ids)
+    print("first track audio feature", spotify_auth.get_audio_features(access_token, ["2mNGL7mZILSqZHxGboJaO9"]).get("genres"))
+    #features_by_id = {f["id"]: f for f in audio_features if f and f.get("id")}
+
+    # 3) Build candidate_songs in the shape your engine expects
+#    candidate_songs = []
+#    for t in tracks:
+#        tid = t.get("id")
+#        f = features_by_id.get(tid)
+#        if not tid or not f:
+#            continue
+#
+#        candidate_songs.append({
+#            "id": tid,
+#            "genres": t.get("genres", []),                 # may be [] (fine for now)
+#            "energy": f.get("energy", 0.5),                # 0–1
+#            "popularity": t.get("popularity", 50),         # 0–100
+#            "artist": (t.get("artists") or [{}])[0].get("name"),
+#        })
+
+    # 4) Run your playlist engine
+ #   ranked = playlist_engine.generate_playlist(vibe_profile, candidate_songs)
+
+    #return ranked[:25]
+    return "here"
 # ============================================================
 # CREATE TABLES ON STARTUP
 # ============================================================
