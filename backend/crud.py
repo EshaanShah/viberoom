@@ -1,8 +1,11 @@
 # backend/crud.py
 import json
+from typing import List
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
 
 from backend.models import User, Room, RoomMember, PreferenceProfile, Playlist
 
@@ -135,6 +138,13 @@ async def get_room_by_code(db: AsyncSession, code: str) -> Room:
     )
     return result.scalars().first()
 
+async def get_room(db: AsyncSession, id: int) -> Room:
+    """Fetch a room using its join code."""
+    result = await db.execute(
+        select(Room).where(Room.id == id)
+    )
+    return result.scalars().first()
+
 
 # ======================================================
 # ROOM MEMBERS
@@ -164,16 +174,17 @@ async def add_user_to_room(db: AsyncSession, room_id: int, user_id: int) -> Room
 
 
 
-async def get_room_members(db: AsyncSession, room_id: int):
-    """Return all users in a room."""
+async def get_room_members(db: AsyncSession, room_id: int) -> List[User]:
+    """
+    Get all User objects for members of a room.
+    """
     result = await db.execute(
-        select(RoomMember).where(RoomMember.room_id == room_id)
+        select(User)
+        .join(RoomMember, RoomMember.user_id == User.id)
+        .where(RoomMember.room_id == room_id)
     )
-    return result.scalars().all()
-
-async def get_room(db: AsyncSession, room_id: int):
-    result = await db.execute(select(Room).where(Room.id == room_id))
-    return result.scalar_one_or_none()
+    users = result.scalars().all()
+    return users
 
 
 # ======================================================

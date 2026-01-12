@@ -13,7 +13,7 @@ from .crud import (
     get_room_by_code,
     add_user_to_room,
     save_preferences,
-    get_room, get_room_members, remove_user_from_room, end_room, get_preferences_for_room
+    get_room_members, remove_user_from_room, end_room, get_preferences_for_room,  get_room
 )
 from .models import User
 from .schemas import UserOut, PreferencesCreate, RoomOut, UserCreate
@@ -25,7 +25,9 @@ from sqlalchemy import select
 from .models import PreferenceProfile
 from .schemas import PreferencesOut, VibeProfile
 import json
-from .rec_engine import generate_vibe_profile
+from .playlist_engine import generate_playlist as engine_generate_playlist
+from .spotify_helpers import create_spotify_playlist, add_tracks_to_playlist, get_user_top_tracks
+
 
 app = FastAPI()
 
@@ -274,57 +276,147 @@ def safe_json_load(value, default):
     except json.JSONDecodeError:
         return default
 
-@app.get("/test/playlist-engine-spotify/{room_id}")
-async def test_playlist_engine_spotify(
+@app.post("/rooms/{room_id}/generate-playlist")
+async def generate_playlist_route(
         room_id: int,
-        user=Depends(get_current_user),
         db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(get_current_user)
 ):
+    """
+    Generate a collaborative playlist for a room.
+
+    Steps:
+    1. Verify room exists and user is a member
+    2. Get all preferences for the room
+    3. Generate vibe profile
+    4. Fetch top tracks for each room member
+    5. Generate playlist using engine
+    6. Create Spotify playlist
+    7. Add tracks to playlist
+    8. Save playlist metadata to DB
+    """
+    # Step 1: Verify room and membership
+    room = await get_room(db, room_id)
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+
+    members = await get_room_members(db, room_id)
+    member_ids = [m.id for m in members]
+
+    if current_user.id not in member_ids:
+        raise HTTPException(status_code=403, detail="Not a member of this room")
+
+    # Step 2: Get preferences
     prefs = await get_preferences_for_room(db, room_id)
     if not prefs:
-        raise HTTPException(404, "No preferences found")
+        raise HTTPException(status_code=400, detail="No preferences submitted yet")
 
+    # Step 3: Generate vibe profile
     vibe_profile = generate_vibe_profile(prefs)
 
-    access_token = await spotify_auth.get_valid_access_token(user)
+    # Step 4: Fetch top tracks for each member
+    user_top_tracks = {}
+    for member in members:
+        try:
+            access_token = await spotify_auth.get_valid_access_token(member)
+            top_tracks = await get_user_top_tracks(access_token, limit=50)
+            user_top_tracks[member.id] = top_tracks
+        except Exception as e:
+            print(f"Failed to fetch tracks for user {member.id}: {e}")
+            # Continue with other users
+            continue
 
-    # 1) Get top tracks
-    tracks = await spotify_auth.get_top_tracks(access_token)
-    track_ids = [t["id"] for t in tracks if t.get("id")]
-    print("ABOUT TO CALL SPOTIFY /me")
-    profile = await spotify_auth.get_user_profile(access_token)
-    print("PROFILE:", profile)
-    track_ids = [t for t in track_ids if t][:50]
-    print("USING TRACK IDS:", track_ids)
-    # 2) Get audio features for those tracks
-    #audio_features = await spotify_auth.get_audio_features(access_token, track_ids)
-    print("first track audio feature", spotify_auth.get_audio_features(access_token, ["2mNGL7mZILSqZHxGboJaO9"]).get("genres"))
-    #features_by_id = {f["id"]: f for f in audio_features if f and f.get("id")}
+    if not user_top_tracks:
+        raise HTTPException(status_code=500, detail="Could not fetch tracks from any room member")
 
-    # 3) Build candidate_songs in the shape your engine expects
-#    candidate_songs = []
-#    for t in tracks:
-#        tid = t.get("id")
-#        f = features_by_id.get(tid)
-#        if not tid or not f:
-#            continue
-#
-#        candidate_songs.append({
-#            "id": tid,
-#            "genres": t.get("genres", []),                 # may be [] (fine for now)
-#            "energy": f.get("energy", 0.5),                # 0–1
-#            "popularity": t.get("popularity", 50),         # 0–100
-#            "artist": (t.get("artists") or [{}])[0].get("name"),
-#        })
+    # Step 5: Generate playlist
+    try:
+        # Use current user's access token for Spotify API calls
+        access_token = await spotify_auth.get_valid_access_token(current_user)
 
-    # 4) Run your playlist engine
- #   ranked = playlist_engine.generate_playlist(vibe_profile, candidate_songs)
+        track_ids = await engine_generate_playlist(
+            vibe_profile=vibe_profile,
+            user_top_tracks_by_user=user_top_tracks,
+            access_token=access_token,
+            room_settings={"max_length": 30, "max_per_artist": 2}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Playlist generation failed: {str(e)}")
 
-    #return ranked[:25]
-    return "here"
+    if not track_ids:
+        raise HTTPException(status_code=500, detail="No tracks generated")
+
+    # Step 6: Create Spotify playlist
+    try:
+        access_token = await spotify_auth.get_valid_access_token(current_user)
+        profile = await spotify_auth.get_user_profile(access_token)
+        spotify_user_id = profile["id"]
+
+        playlist_name = f"VibeRooms - {room.code}"
+        playlist_description = f"Collaborative playlist for room {room.code}"
+
+        spotify_playlist = await create_spotify_playlist(
+            access_token=access_token,
+            user_id=spotify_user_id,
+            name=playlist_name,
+            description=playlist_description,
+            public=True
+        )
+
+        # Step 7: Add tracks
+        track_uris = [f"spotify:track:{tid}" for tid in track_ids]
+        await add_tracks_to_playlist(
+            access_token=access_token,
+            playlist_id=spotify_playlist["id"],
+            track_uris=track_uris
+        )
+
+        # Step 8: Save to DB (optional - add Playlist model if needed)
+        # For now, just return the result
+
+        return {
+            "message": "Playlist generated successfully",
+            "playlist_id": spotify_playlist["id"],
+            "playlist_url": spotify_playlist["external_urls"]["spotify"],
+            "track_count": len(track_ids)
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create Spotify playlist: {str(e)}")
+
+@app.get("/debug/vibe-profile/{room_id}")
+async def debug_vibe_profile(
+        room_id: int,
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+):
+    """Debug endpoint to see raw vibe profile data."""
+    prefs = await get_preferences_for_room(db, room_id)
+
+    # Show raw preference data
+    raw_prefs = []
+    for pref in prefs:
+        raw_prefs.append({
+            "user_id": pref.user_id,
+            "genres_raw": pref.genres,
+            "genres_type": type(pref.genres).__name__,
+            "hard_nos_raw": pref.hard_nos,
+            "hard_nos_type": type(pref.hard_nos).__name__
+        })
+
+    # Generate vibe profile
+    vibe = generate_vibe_profile(prefs)
+
+    return {
+        "raw_preferences": raw_prefs,
+        "vibe_profile": vibe,
+        "target_genres_type": type(vibe["target_genres"]).__name__
+    }
 # ============================================================
 # CREATE TABLES ON STARTUP
 # ============================================================
+
+
 
 @app.on_event("startup")
 async def on_startup():
